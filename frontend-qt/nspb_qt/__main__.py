@@ -24,6 +24,10 @@ def app_icon() -> QIcon:
 
 
 def main() -> int:
+    if any(arg in ('-h', '--help') for arg in sys.argv[1:]):
+        print('Usage: python3 -m nspb_qt  (NX2Apple Qt launcher GUI)')
+        print('Env: NX2APPLE_START_LINUX=1 opens directly on the Linux runtime tab.')
+        return 0
     # Before anything can spawn a child: on Windows every subprocess would otherwise open its own
     # console window (see the docstring — this is the "black window, nothing happens" report).
     hide_console_for_children()

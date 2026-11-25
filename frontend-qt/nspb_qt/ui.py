@@ -196,9 +196,17 @@ class MainWindow(QMainWindow):
         self.library_page = self._build_library_page()
         self.builds_page = self._build_builds_page()
         self.settings_page = self._build_settings_page()
+        self.linux_page = None
+        self._linux_closing = False
+        if pu.IS_LINUX:
+            from .linux_page import LinuxPage
+            self.linux_page = LinuxPage(self.m)
+            self.linux_page.idle.connect(self._linux_idle)
         self.scroll_col.addWidget(self.library_page, 1)
         self.scroll_col.addWidget(self.builds_page)
         self.scroll_col.addWidget(self.settings_page)
+        if self.linux_page:
+            self.scroll_col.addWidget(self.linux_page)
         self.scroll.setWidget(scroll_body)
 
         self.stack.addWidget(self.scroll)
@@ -225,7 +233,7 @@ class MainWindow(QMainWindow):
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
 
-        self._switch_page('builds')
+        self._switch_page('linux' if pu.IS_LINUX and os.environ.get('NX2APPLE_START_LINUX') == '1' else 'builds')
 
         self._refresh_all()
         for g in self.m.library.games:
@@ -283,7 +291,7 @@ class MainWindow(QMainWindow):
         nav_wrap.setContentsMargins(0, 0, 0, 0)
         nav_wrap.setSpacing(4)
         self.nav_btns: dict[str, QPushButton] = {}
-        for page_id in ('library', 'builds', 'settings'):
+        for page_id in (('library', 'builds', 'linux', 'settings') if pu.IS_LINUX else ('library', 'builds', 'settings')):
             btn = QPushButton(self.m.t('nav.' + page_id))
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda _=False, p=page_id: self._switch_page(p))
@@ -352,6 +360,8 @@ class MainWindow(QMainWindow):
         self.library_page.setVisible(page_id == 'library')
         self.builds_page.setVisible(page_id == 'builds')
         self.settings_page.setVisible(page_id == 'settings')
+        if self.linux_page:
+            self.linux_page.setVisible(page_id == 'linux')
         self.stack.setCurrentIndex(0)
         self.scroll.verticalScrollBar().setValue(0)
         for pid, btn in self.nav_btns.items():
@@ -366,6 +376,18 @@ class MainWindow(QMainWindow):
             self._refresh_library()
 
     # ================================================================ Engine Banner
+
+    def _linux_idle(self) -> None:
+        if self._linux_closing:
+            self.close()
+
+    def closeEvent(self, event) -> None:
+        if self.linux_page and self.linux_page.busy:
+            self._linux_closing = True
+            self.linux_page.stop()
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _build_engine_banner(self) -> QFrame:
         box = QFrame()
@@ -1838,6 +1860,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_all(self) -> None:
         t = self.m.t
+        if self.linux_page:
+            self.linux_page.refresh()
         self.lang_btn.setText(self.m.lang.toggle_label)
 
         # Sync language dropdown without re-triggering signal

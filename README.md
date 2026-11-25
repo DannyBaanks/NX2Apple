@@ -5,9 +5,9 @@
   <img src="frontend/screenshots/logo-light.png" width="360" alt="NX2Apple, by nxnative">
 </picture>
 
-**Your Switch games, running on your iPhone.**
+**Your Switch games, running on your iPhone, Mac — and now on Linux (in this fork).**
 
-**Not an emulator. No terminal. A macOS or Windows app does the whole build in a few clicks.**
+**Not an emulator on ARM64. No macOS required on Linux: a Qt desktop app prepares, builds, and runs games in a few clicks.**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -22,10 +22,22 @@
 [![Français](https://img.shields.io/badge/🇫🇷_Français-available-green)](README.fr.md)
 [![Italiano](https://img.shields.io/badge/🇮🇹_Italiano-available-green)](README.it.md)
 
+</div>
+
+> [!IMPORTANT]
+> **About this fork (`DannyBaanks/NX2Apple` — `feature/linux-native`)**
+>
+> This fork diverged from an earlier version of upstream [`LNPANDY/NX2Apple`](https://github.com/LNPANDY/NX2Apple) (`main` at commit `51ca125b`, upstream engine pin `81906931`) and intentionally trails behind upstream `main`.
+>
+> **What makes this fork different:** while upstream focuses on macOS, iOS, and Windows-to-iOS builds, **this fork already runs Switch games on Linux** — with a live Qt game window, PipeWire/ALSA audio, keyboard/evdev controls, atomic save transactions on Linux filesystems (`ext4`), and both **native ARM64 Linux** and **x86_64 Linux (via `qemu-aarch64-static`)** runtimes. See [Linux support](#linux-support-this-fork) and [LINUX_PORT.md](LINUX_PORT.md).
+
+<div align="center">
+
 <img src="frontend/screenshots/hero-features-en.png" width="100%" alt="NX2Apple — Switch games on iPhone and Mac">
 
 #### 🆕 Latest highlights
 
+- **Linux runtime & live Qt player (this fork)**: Prepare Switch NSP dumps, build the Linux host (`aarch64` / `x86_64`), and run games directly on Linux with live video, PipeWire/ALSA audio, keyboard input, and atomic saves — verified end-to-end with *Pokémon LeafGreen Version* on Ubuntu Linux.
 - **Windows launcher (`NX2Apple-windows-x64.zip`)**: Build iPhone and iPad IPAs on Windows with the same 1.2 interface, a bundled engine tree (no git needed), guided first-run setup, multi-core NSO rewriting, and in-app self-update (`NX2Apple.exe`).
 - **Switch 2 games**: Pick a Switch 2 game folder or `.nup` file in the Mac or Windows launcher, with no `prod.keys` needed, and play on Mac, iPhone, or iPad.
 - **Custom touch controls, split Joy-Con, and Steam Controller (2026)**: Resize buttons, move the left stick, or arrange every control in the visual layout editor on iPhone and iPad. Physical controllers support per-game or global button remapping, split a Bluetooth Joy-Con pair into two sideways controllers on Mac, and support the Steam Controller (2026).
@@ -48,8 +60,36 @@ keeps your games in a library you start with **Play**, the way a Switch does.
 <img src="frontend/screenshots/launcher-library.webp" width="100%" alt="The launcher: a library of built games, one build in progress">
 
 It is a community fork of **[nxnative](https://github.com/seedds/nxnative)**, which does the actual
-work (the code rewriter, the Horizon host, NVN on Metal and every game's profile); this fork adds the
-launcher and a short list of patches, and follows nxnative every day.
+work (the code rewriter, the Horizon host, NVN on Metal and every game's profile); upstream
+**[LNPANDY/NX2Apple](https://github.com/LNPANDY/NX2Apple)** adds the launcher and patch series, and
+this fork (`DannyBaanks/NX2Apple`, branched from upstream `51ca125b`) extends both the launcher and
+the host engine to run games directly on Linux.
+
+## Linux support (this fork)
+
+Unlike upstream `LNPANDY/NX2Apple`, this fork adds a working Linux port of both the Qt launcher and
+the Horizon host runtime (`engine/dm/host/linux/`):
+
+- **Two execution modes**:
+  - **Native ARM64 Linux (`native`)**: runs the rewritten ARM64 Switch modules directly on an `aarch64` Linux host.
+  - **x86_64 Linux via QEMU (`qemu`)**: runs the same static `aarch64` Linux host under `qemu-aarch64-static` on standard Intel/AMD Linux machines.
+- **Playable end-to-end pipeline**:
+  - Live Qt game display window fed by a double-buffered shared-memory NVN framebuffer (`DM_FB_SHM`) with aspect-ratio scaling and PNG screenshots.
+  - Real-time 48 kHz stereo audio over PipeWire (`pw-play`) / ALSA (`aplay`).
+  - Live keyboard-to-Switch controller input (Arrows/WASD, `Z`/`Space` = A, `X`/`Backspace` = B, `Enter` = `+`, `Tab`/`Shift` = `-`, `Q`/`E` = L/R) plus `evdev` controller support.
+  - Transactional atomic save directories (`clonefile` recursive copy + `renameat2(RENAME_EXCHANGE)`) working on standard Linux filesystems such as `ext4`.
+- **Current scope & honesty**:
+  - Verified end-to-end with **Pokémon LeafGreen Version** (`010034D02340E000`) running with live video, audio, controls, and saves on Ubuntu Linux.
+  - Games using 2D/framebuffer NVN rendering work on the current Linux framebuffer path; full 3D games with custom Tegra shaders still depend on completing the Vulkan shader translation and replay path (`nvn_vk*`, tracked in [LINUX_PORT.md](LINUX_PORT.md)).
+
+### Quick start on Linux
+
+```bash
+bash tools/run-linux-gui
+```
+
+Open the **Linux** tab, select your own `.nsp` dump, your `prod.keys`, and a work folder outside the
+repository, then run **Prepare game** → **Build host** → **Start runtime**.
 
 ## Requirements
 
@@ -124,11 +164,11 @@ for your own games.
 **On the Mac**, a finished game appears in the library with its key art. **Play** starts it.
 **Launch options** (per game, kept across rebuilds) set the frame rate, console mode (docked or
 handheld), render scale and upscaling, game language, controls and more; what each does is in
-[docs/settings.md](https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/settings.md). A controller drives the launcher as well as the games.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/81906931262fb25d774cce8bca2db8926439e5a2/docs/settings.md). A controller drives the launcher as well as the games.
 
 **On the iPhone**, the app shows the same settings before the game starts; tap **Play**. Touch
 controls come in a 2D and a 3D layout (tap the button at the top centre), and a connected controller
-(Xbox, PlayStation, Switch Pro, MFi) replaces them. [docs/playing.md](https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/playing.md) covers touch,
+(Xbox, PlayStation, Switch Pro, MFi) replaces them. [docs/playing.md](https://github.com/seedds/nxnative/blob/81906931262fb25d774cce8bca2db8926439e5a2/docs/playing.md) covers touch,
 rumble and motion. Short stutters the first time a scene appears are normal: the app compiles
 graphics for it once and remembers them. The game's data (`romfs.img`) can live on an external drive
 that the Files app picks.
@@ -166,12 +206,12 @@ profile that has not been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac and iPhone | **Verified here**: 304,243 files, byte-checked; ~17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac and iPhone | **Verified here** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verified here**: runs smoothly |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Reported playable upstream |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Reported playable upstream; 60 fps with 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Reported playable upstream |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/81906931262fb25d774cce8bca2db8926439e5a2/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac and iPhone | **Verified here**: 304,243 files, byte-checked; ~17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/81906931262fb25d774cce8bca2db8926439e5a2/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac and iPhone | **Verified here** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/81906931262fb25d774cce8bca2db8926439e5a2/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verified here**: runs smoothly |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/81906931262fb25d774cce8bca2db8926439e5a2/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Reported playable upstream |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/81906931262fb25d774cce8bca2db8926439e5a2/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Reported playable upstream; 60 fps with 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/81906931262fb25d774cce8bca2db8926439e5a2/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Reported playable upstream |
 
 **[GAMES.md](GAMES.md)** has the screenshot gallery with each
 game's install size, and the full table with the update version each game needs: the update NSP's
@@ -189,7 +229,7 @@ the iPad. The other Switch 2 games were not tried here. [GAMES.md](GAMES.md#swit
 ## Limitations
 
 - **Only the games with a profile.** A title outside the list needs bring-up work of its own; the
-  place to start is [docs/agents](https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/agents/README.md), upstream's guide for another Switch title.
+  place to start is [docs/agents](https://github.com/seedds/nxnative/blob/81906931262fb25d774cce8bca2db8926439e5a2/docs/agents/README.md), upstream's guide for another Switch title.
 - **Big games on an iPhone hit a memory limit.** Without the Increased Memory Limit entitlement iOS
   gives the app about 3.4 GB, which is not enough for Tears of the Kingdom. The app requests it, and
   AltStore Classic 2.2+, Impactor and Xcode with a Personal Team keep it; SideStore with a free Apple
@@ -213,7 +253,7 @@ the iPad. The other Switch 2 games were not tried here. [GAMES.md](GAMES.md#swit
   [patches/README.md](patches/README.md) explains it, and `python3 tools/engine.py status` lists what
   is carried. A daily job moves the pin and opens a pull request, or an issue naming the patch that no
   longer fits. The links to the engine's documents in this README point at nxnative at the pinned commit.
-- **Another Switch game:** [docs/agents](https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/agents/README.md) (extraction, binary survey, bring-up).
+- **Another Switch game:** [docs/agents](https://github.com/seedds/nxnative/blob/81906931262fb25d774cce8bca2db8926439e5a2/docs/agents/README.md) (extraction, binary survey, bring-up).
 - **Release history:** [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits
@@ -245,7 +285,7 @@ All of the engine work is other people's. This repository adds the launcher and 
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate** — see upstream's acknowledgement
   list for what each contributes.
 
-`dm/third_party` ships other projects with their licenses ([list](https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/dm/third_party/README.md)).
+`dm/third_party` ships other projects with their licenses ([list](https://github.com/seedds/nxnative/blob/81906931262fb25d774cce8bca2db8926439e5a2/dm/third_party/README.md)).
 
 ## Legal
 

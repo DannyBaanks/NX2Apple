@@ -933,11 +933,12 @@ class SharedShellParityTests(unittest.TestCase):
                 self.stdout = io.StringIO(
                     'Processing ./wheels/lz4-4.3.3.whl\n'
                     'Processing ./wheels/capstone-5.0.3.whl\n'
+                    'Processing ./wheels/unicorn-2.1.4.whl\n'
                     'Processing ./wheels/fonttools-4.55.0.whl\n'
                     'Processing ./wheels/zbic-0.1.0.whl\n'
                     'Processing ./wheels/backports_zstd-1.0.0.whl\n'
                     'Processing ./wheels/nsz-4.6.1.whl\n'
-                    'Successfully installed lz4 capstone fonttools zbic backports.zstd nsz\n'
+                    'Successfully installed lz4 capstone unicorn fonttools zbic backports.zstd nsz\n'
                 )
                 self.returncode = 0
 
@@ -2182,6 +2183,15 @@ class ParityWindowTests(unittest.TestCase):
         from nspb_qt.sheets import OnboardingDialog
         from nspb_qt.ui import MainWindow
 
+        # The window's deferred first check (a 50 ms single-shot timer, ui.py _init_timer)
+        # rebuilds the rows from the machine's own tools, which is what the panel is for.
+        # This test puts its own rows there, so the check is off for the whole test and the
+        # timer is stopped: otherwise the two race, and whether the rows survived to the
+        # assertion at the end depended on when the timer happened to fire.
+        p_check = mock.patch.object(Model, 'check_deps', lambda self: None)
+        p_check.start()
+        self.addCleanup(p_check.stop)
+
         with mock.patch.object(Model, 'check_deps', lambda self: None):
             m = Model()
 
@@ -2193,6 +2203,7 @@ class ParityWindowTests(unittest.TestCase):
 
         with mock.patch.object(MainWindow, '_maybe_show_onboarding', lambda self: None):
             w = MainWindow(m)
+        w._init_timer.stop()   # the deferred first check's timer: stopped, so it cannot race this test
         dlg = OnboardingDialog(m)
         self.addCleanup(dlg.deleteLater)
         self.addCleanup(self._delete, m, w)
@@ -2260,6 +2271,46 @@ class ParityWindowTests(unittest.TestCase):
             shiboken6.ownedByPython(grp_widget),
             '_clear_body must not transfer QWidget ownership back to Python GC via setParent(None)',
         )
+
+    def test_hero_banner_bottom_edge_fades_cleanly_without_bright_seam(self) -> None:
+        """Verify HeroBannerWidget leaves no 1px bright artwork seam at its bottom edge across fractional HiDPI scales."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QColor, QImage, QPixmap
+        from nspb_qt.widgets import HeroBannerWidget
+
+        hero = HeroBannerWidget()
+        try:
+            pm = QPixmap(1920, 1080)
+            pm.fill(QColor(255, 255, 255))
+            hero._pixmap = pm
+
+            for height in (610, 611):
+                hero.resize(1478, height)
+                for dpr in (1.0, 1.25, 1.5, 1.75, 2.0):
+                    pw = int(hero.width() * dpr) + 4
+                    ph = int(hero.height() * dpr) + 4
+                    img = QImage(pw, ph, QImage.Format_ARGB32_Premultiplied)
+                    img.setDevicePixelRatio(dpr)
+                    img.fill(QColor(0, 0, 0))
+                    hero.render(img)
+                    bottom_y = int(round(hero.height() * dpr))
+                    tail = [
+                        max(
+                            QColor(img.pixel(pw // 2, y)).red(),
+                            QColor(img.pixel(pw // 2, y)).green(),
+                            QColor(img.pixel(pw // 2, y)).blue(),
+                        )
+                        for y in range(max(0, bottom_y - 4), min(ph, bottom_y + 2))
+                    ]
+                    self.assertLessEqual(
+                        max(tail),
+                        4,
+                        f'Bright bottom seam leaked at height={height}, dpr={dpr}: tail={tail}',
+                    )
+        finally:
+            hero.deleteLater()
+            self.app.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
 
 
 if __name__ == '__main__':

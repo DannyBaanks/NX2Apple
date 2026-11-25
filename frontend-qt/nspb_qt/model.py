@@ -301,6 +301,8 @@ class Model(QObject):
             if pu.IS_WIN:
                 root = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local'))
                 base = root / 'NS Port Builder' / 'logs'
+            elif pu.IS_LINUX:
+                base = Path(os.environ.get('XDG_STATE_HOME') or (Path.home() / '.local' / 'state')) / 'nx2apple' / 'logs'
             else:
                 base = Path.home() / 'Library' / 'Logs' / 'NS Port Builder'
             base.mkdir(parents=True, exist_ok=True)
@@ -618,8 +620,8 @@ class Model(QObject):
         if py_ver and pu._ver_tuple(py_ver) >= pu.MIN_PYTHON:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.missing:{py} ({py_ver})',
-                       install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'fonttools',
-                                'zbic', 'backports.zstd', 'nsz'])
+                       install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'unicorn',
+                                'fonttools', 'zbic', 'backports.zstd', 'nsz'])
         if pu.IS_WIN:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.none:{py or "python3"}',
@@ -648,9 +650,11 @@ class Model(QObject):
                             DepState.OK if dn_ok else DepState.MISSING,
                             dn if dn_ok else 'dep.dotnet.missing'))
 
-        # Xcode (macOS) or the cross toolchain (Windows)
+        # Xcode (macOS), the cross toolchain (Windows) or the Vulkan tools (Linux)
         if pu.IS_WIN:
             deps.extend(self._windows_deps(deps))
+        elif pu.IS_LINUX:
+            deps.extend(self._linux_deps())
         else:
             xc = pu.xcode_ok()
             sdk = xc and pu.ios_sdk_ok()
@@ -738,6 +742,30 @@ class Model(QObject):
         # uses) never stops a build: counting it kept the button grey on a machine whose panel said
         # "everything required is installed", with nothing on screen to say why.
         return all(d.ok for d in self.deps if d.required)
+
+    # ---- Linux rows
+
+    def _linux_deps(self) -> list[Dep]:
+        """Linux has no Xcode and no Metal, so the iPhone build does not belong to this
+        machine: it needs a Mac, or the Windows cross toolchain with Apple's Metal
+        Developer Tools.
+
+        What Linux does have is the Vulkan shader chain, which the Linux runtime needs:
+        spirv-cross turns the translator's SPIR-V into GLSL for Vulkan and glslangValidator
+        compiles that into SPIR-V again. The two rows are optional, because they belong to
+        the Linux build path and not to the iOS one, and zstd is required because the
+        pipeline decompresses the dump with it.
+        """
+        out: list[Dep] = []
+        for tool, title, hint, required in (('zstd', 'dep.linux.zstd', 'dep.zstd.hint', True),
+                                            ('spirv-cross', 'dep.linux.spirv', 'dep.spirv.hint', False),
+                                            ('glslangValidator', 'dep.linux.glslang', 'dep.glslang.hint', False)):
+            found = pu.find_tool(tool)
+            out.append(Dep('tool:' + tool, title, hint,
+                           DepState.OK if found else DepState.MISSING, found or '',
+                           required=required))
+        self.log(self.t('dep.linux.note') + '\n')
+        return out
 
     # ---- Windows toolchain rows
 
@@ -1774,9 +1802,9 @@ class Model(QObject):
                 return False
         ver_str = pu._python_version(vpy)
         ver = pu._ver_tuple(ver_str)
-        pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']
+        pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'nsz']
         if ver < (3, 14):
-            pkgs.insert(4, 'backports.zstd')
+            pkgs.insert(5, 'backports.zstd')
         wheels_fn = getattr(self, 'bundled_wheels', Model.bundled_wheels)
         wheels = wheels_fn()
         for attempt_wheels in ([wheels, None] if wheels else [None]):

@@ -35,6 +35,8 @@ def default_state_dir() -> Path:
     if pu.IS_WIN:
         root = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local'))
         return root / 'NS Port Builder'
+    if pu.IS_LINUX:
+        return Path(os.environ.get('XDG_DATA_HOME') or (Path.home() / '.local' / 'share')) / 'NS Port Builder'
     return Path.home() / 'Library' / 'Application Support' / 'NS Port Builder'
 
 _TID_RE = re.compile(r'\[([0-9A-Fa-f]{16})\]')
