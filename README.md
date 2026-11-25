@@ -89,7 +89,12 @@ bash tools/run-linux-gui
 ```
 
 Open the **Linux** tab, select your own `.nsp` dump, your `prod.keys`, and a work folder outside the
-repository, then run **Prepare game** → **Build host** → **Start runtime**.
+repository, then run **Prepare game** → **Build host** → **Start runtime**. The build target follows
+execution mode: ARM64 for native gameplay or QEMU, and the machine architecture for inspection.
+The first gameplay launch checks the heap with isolated temporary save storage and adjusts the
+profile from the engine's startup diagnostics. Its logs stay in `heap-check-*` inside the work
+folder. A successful check is reused until the profile, rewritten modules, or host changes.
+On x86_64, install `qemu-aarch64` or `qemu-aarch64-static`, or select its executable in the Linux tab.
 
 ## Requirements
 
