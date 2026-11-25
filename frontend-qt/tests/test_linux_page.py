@@ -43,6 +43,20 @@ class PageProcess(unittest.TestCase):
             time.sleep(0.01)
         self.assertTrue(predicate(), self.page.log.toPlainText())
 
+    def test_build_target_follows_execution_mode(self):
+        with mock.patch('nspb_qt.linux_runtime.machine_arch', return_value='x86_64'):
+            page = LinuxPage(self.page.m)
+            self.addCleanup(page.deleteLater)
+            self.assertEqual(page.mode.currentData(), 'qemu')
+            self.assertEqual(page.arch.currentText(), 'aarch64')
+            page.mode.setCurrentIndex(page.mode.findData('inspect'))
+            self.assertEqual(page.arch.currentText(), 'x86_64')
+            page.mode.setCurrentIndex(page.mode.findData('qemu'))
+            page.arch.setCurrentText('x86_64')
+            with mock.patch.object(page, '_command') as command:
+                page.build()
+            self.assertEqual(command.call_args.args[1][-1], 'aarch64')
+
     def test_child_output_and_nonzero_status_are_delivered(self):
         self.page.start('test', [sys.executable, '-c', 'print("real child output"); raise SystemExit(7)'])
         self.until(lambda: not self.page.busy)
@@ -130,6 +144,29 @@ class LivePlayerTest(unittest.TestCase):
         b2, *_ = struct.unpack_from('<Qiiii', raw, 24)
         self.assertEqual(b1, DM_BTN_A)
         self.assertEqual(b2, 0)
+
+    def test_releasing_one_alias_preserves_other_held_keys(self):
+        import struct
+        from PySide6.QtCore import QEvent, Qt
+        from PySide6.QtGui import QKeyEvent, QFocusEvent
+        from nspb_qt.linux_player import DM_BTN_A, DM_BTN_LEFT, LinuxGameWindow, LinuxLiveSession
+
+        sess = LinuxLiveSession(enable_audio=False)
+        self.addCleanup(sess.close)
+        rfd = os.open(sess.input_fifo, os.O_RDONLY | os.O_NONBLOCK)
+        self.addCleanup(lambda: os.close(rfd))
+        win = LinuxGameWindow(sess)
+        self.addCleanup(win.deleteLater)
+        self.addCleanup(win.stop_polling)
+        for kind, key in ((QEvent.KeyPress, Qt.Key_Z), (QEvent.KeyPress, Qt.Key_Space),
+                          (QEvent.KeyPress, Qt.Key_Left), (QEvent.KeyRelease, Qt.Key_Z)):
+            self.app.sendEvent(win, QKeyEvent(kind, key, Qt.NoModifier))
+        raw = os.read(rfd, 24 * 4)
+        self.assertEqual(struct.unpack_from('<Q', raw, 72)[0], DM_BTN_A | DM_BTN_LEFT)
+        self.app.sendEvent(win, QFocusEvent(QEvent.FocusOut))
+        self.assertEqual(struct.unpack_from('<Q', os.read(rfd, 24))[0], 0)
+        self.app.sendEvent(win, QKeyEvent(QEvent.KeyPress, Qt.Key_X, Qt.NoModifier))
+        self.assertEqual(struct.unpack_from('<Q', os.read(rfd, 24))[0], 2)
 
     def test_audio_sink_stays_alive_when_started(self):
         from nspb_qt.linux_player import LinuxLiveSession, find_audio_player

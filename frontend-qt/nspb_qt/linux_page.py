@@ -61,12 +61,12 @@ class LinuxPage(QWidget):
         for key in ('native', 'qemu', 'inspect'):
             self.mode.addItem('', key)
         self.mode.setCurrentIndex(1 if rt.machine_arch() == 'x86_64' else 0)
-        self.mode.currentIndexChanged.connect(self.refresh)
+        self.mode.currentIndexChanged.connect(self._mode_changed)
         row.addWidget(self.mode, 1)
         self.arch = QComboBox()
         self.arch.setObjectName('launcherDropdown')
         self.arch.addItems(['aarch64', 'x86_64'])
-        self.arch.setCurrentText(rt.machine_arch())
+        self.arch.setCurrentText(self.build_arch())
         row.addWidget(self.arch)
         col.addLayout(row)
         buttons = QHBoxLayout()
@@ -149,6 +149,7 @@ class LinuxPage(QWidget):
             self.mode.setItemText(i, t(key))
         for w in self._inputs + [self.mode, self.arch]:
             w.setEnabled(not self.busy)
+        self.arch.setEnabled(False)
         ready = bool(self.work.text() and (Path(self.work.text()) / 'linux-game.json').is_file())
         self.prepare_btn.setEnabled(not self.busy and Path(self.nsp.text()).is_file() and Path(self.keys.text()).is_file() and bool(self.work.text()))
         self.build_btn.setEnabled(not self.busy and ready)
@@ -205,8 +206,15 @@ class LinuxPage(QWidget):
     def prepare(self):
         self._command('prepare', ['prepare', '--nsp', self.nsp.text(), '--keys', self.keys.text(), '--work', self.work.text()])
 
+    def build_arch(self):
+        return rt.machine_arch() if self.mode.currentData() == 'inspect' else 'aarch64'
+
+    def _mode_changed(self):
+        self.arch.setCurrentText(self.build_arch())
+        self.refresh()
+
     def build(self):
-        self._command('build', ['build', '--work', self.work.text(), '--arch', self.arch.currentText()])
+        self._command('build', ['build', '--work', self.work.text(), '--arch', self.build_arch()])
 
     def check_render(self):
         self._command('render', ['check-render', '--work', str(library.default_state_dir() / 'linux-render')])

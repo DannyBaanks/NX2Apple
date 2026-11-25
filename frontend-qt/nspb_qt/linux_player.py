@@ -322,6 +322,7 @@ class LinuxGameWindow(QWidget):
         self.session = session
         self.screenshots_dir = screenshots_dir
         self._buttons = 0
+        self._held_keys: set[int] = set()
         self.setWindowTitle(f'{title} — NX2Apple Linux')
         self.resize(1120, 680)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -394,7 +395,8 @@ class LinuxGameWindow(QWidget):
             return
         bit = KEY_MAP.get(int(event.key()))
         if bit:
-            self._buttons |= bit
+            self._held_keys.add(int(event.key()))
+            self._update_buttons()
             self.session.send_input(self._buttons)
             event.accept()
             return
@@ -405,13 +407,20 @@ class LinuxGameWindow(QWidget):
             return
         bit = KEY_MAP.get(int(event.key()))
         if bit:
-            self._buttons &= ~bit
+            self._held_keys.discard(int(event.key()))
+            self._update_buttons()
             self.session.send_input(self._buttons)
             event.accept()
             return
         super().keyReleaseEvent(event)
 
+    def _update_buttons(self) -> None:
+        self._buttons = 0
+        for key in self._held_keys:
+            self._buttons |= KEY_MAP[key]
+
     def focusOutEvent(self, event) -> None:
+        self._held_keys.clear()
         if self._buttons:
             self._buttons = 0
             self.session.send_input(0)
@@ -421,6 +430,7 @@ class LinuxGameWindow(QWidget):
         self._timer.stop()
 
     def closeEvent(self, event) -> None:
+        self._held_keys.clear()
         self._timer.stop()
         if self._buttons:
             self._buttons = 0

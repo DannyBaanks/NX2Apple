@@ -11,6 +11,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +131,96 @@ def build(eng, work, arch):
          f'GAME={rt.profile_id(profile)}', f'ARCH={arch}', '-j2'], env=env)
 
 
+def heap_fingerprint(plan, profile):
+    paths = [profile, Path(plan.argv[-2])]
+    modules = Path(plan.argv[-1])
+    paths += sorted(modules.glob('*.patched.bin')) + sorted(modules.glob('*.fixups.tsv'))
+    return [digest(p) for p in paths]
+
+
+def probe_heap(plan, folder, timeout=20):
+    """Observe startup using private save/temp storage and no live player pipes."""
+    folder.mkdir(parents=True, exist_ok=True)
+    env = {k: v for k, v in plan.env.items()
+           if k not in ('DM_FB_SHM', 'DM_INPUT_PIPE', 'DM_AUDIO_PIPE')}
+    env.update(DM_SAVE=str(folder / 'save'), DM_TEMP=str(folder / 'temp'), DM_AUDIO='0')
+    for key in ('DM_SAVE', 'DM_TEMP'):
+        Path(env[key]).mkdir()
+    log = folder / 'runtime.log'
+    with log.open('w') as output:
+        child = subprocess.Popen(plan.argv, cwd=plan.cwd, env=env,
+                                 stdout=output, stderr=subprocess.STDOUT)
+        try:
+            deadline, nnmain = time.monotonic() + timeout, None
+            while True:
+                text = log.read_text(errors='replace')
+                exited = child.poll() is not None
+                if '>>> nnMain' in text:
+                    nnmain = nnmain or time.monotonic()
+                if (exited or 'SetHeapSize OOM' in text or
+                    re.search(r'\[mem\] SetHeapSize .* > app pool', text) or
+                    (nnmain is not None and time.monotonic() - nnmain >= 2) or
+                    time.monotonic() >= deadline):
+                    break
+                time.sleep(0.05)
+            failed = (exited and child.returncode != 0) or time.monotonic() >= deadline
+        finally:
+            if child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+        return log.read_text(errors='replace'), log, failed
+
+
+def calibrate_heap(eng, work, mode, qemu=''):
+    """Apply the engine's measured heap rules before the first playable run.
+
+    Failed and timed-out probes are never cached. Changing modules, host or profile
+    invalidates the successful check. Existing saves are never used by a probe.
+    """
+    modules, romfs, profile = rt.prepared_inputs(work)
+    plan = rt.launch_plan(eng, modules, romfs, profile, mode, qemu=qemu)
+    stamp = work / 'linux-heap-check.json'
+    fingerprint = heap_fingerprint(plan, profile)
+    if stamp.is_file():
+        try:
+            if json.loads(stamp.read_text()).get('fingerprint') == fingerprint:
+                return
+        except (ValueError, OSError):
+            pass
+    sys.path.insert(0, str(eng / 'dm/games'))
+    import game
+    import profile_guess as pg
+    folder = Path(tempfile.mkdtemp(prefix='heap-check-', dir=work))
+    print(f'Checking the Linux heap (isolated save): {folder}', flush=True)
+    for rnd in range(4):
+        g = game.Game(profile.parent)
+        text, log, failed = probe_heap(plan, folder / str(rnd + 1))
+        changes = {k: v for k, v in pg.heap_signals(text, g).items()
+                   if g.get(k, '') != v[0]}
+        if changes:
+            lines = [line for line in profile.read_text().splitlines()
+                     if line.split('\t', 1)[0].strip() not in changes]
+            lines += ['', '# ---- Linux heap check ----']
+            for key, (value, why) in changes.items():
+                print(f'Heap check: {key} {value}: {why}', flush=True)
+                lines += [f'# {why}', f'{key}\t{value}']
+            staged = profile.with_name('game.tsv.heap-check.tmp')
+            staged.write_text('\n'.join(lines) + '\n')
+            staged.replace(profile)
+            continue
+        if '>>> nnMain' not in text or 'SetHeapSize OOM' in text or 'FATAL' in text or failed or ' > app pool' in text:
+            raise rt.RuntimeError(f'Linux heap check failed or timed out. See {log}')
+        stamp.write_text(json.dumps({'fingerprint': heap_fingerprint(plan, profile),
+                                     'log': str(log.relative_to(work))}, indent=2) + '\n')
+        print(f'Linux heap check ready: {log}', flush=True)
+        return
+    raise rt.RuntimeError(f'Linux heap calibration did not converge. See {folder}')
+
+
 def check_render(eng, work):
     work.mkdir(parents=True, exist_ok=True)
     host = eng / 'dm/host'
@@ -162,7 +254,7 @@ def main(argv=None):
     p.add_argument('--work', type=Path, required=True)
     p = sp.add_parser('build')
     p.add_argument('--work', type=Path, required=True)
-    p.add_argument('--arch', choices=('aarch64', 'x86_64'), default=rt.machine_arch())
+    p.add_argument('--arch', choices=('aarch64', 'x86_64'), default='aarch64')
     p = sp.add_parser('run')
     p.add_argument('--work', type=Path, required=True)
     p.add_argument('--mode', choices=('native', 'qemu', 'inspect'), required=True)
@@ -179,6 +271,8 @@ def main(argv=None):
         elif a.command == 'check-render':
             check_render(eng, work)
         else:
+            if a.mode != 'inspect':
+                calibrate_heap(eng, work, a.mode, a.qemu)
             p = rt.launch_plan(eng, *rt.prepared_inputs(work), a.mode, qemu=a.qemu)
             for key in ('DM_SAVE', 'DM_TEMP'):
                 Path(p.env[key]).mkdir(parents=True, exist_ok=True)
