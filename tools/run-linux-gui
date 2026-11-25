@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+TASK_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd -- "$TASK_ROOT"
+if [[ ! -x .venv/bin/python ]]; then
+    if command -v uv >/dev/null; then
+        uv venv --python 3.12 .venv
+        uv pip install --python .venv/bin/python -r frontend-qt/requirements-linux.txt
+    else
+        python3 -m venv .venv
+        .venv/bin/python -m pip install -r frontend-qt/requirements-linux.txt
+    fi
+fi
+export NX2APPLE_START_LINUX=1
+if [[ -z "${QEMU_AARCH64:-}" ]] && ! command -v qemu-aarch64-static >/dev/null 2>&1; then
+    if [[ -x /tmp/nx2apple-linux-deps/usr/bin/qemu-aarch64-static ]]; then
+        export QEMU_AARCH64=/tmp/nx2apple-linux-deps/usr/bin/qemu-aarch64-static
+    fi
+fi
+if [[ -z "${NX2APPLE_VULKAN_INCLUDE:-}" ]] && [[ ! -f /usr/include/vulkan/vulkan.h ]]; then
+    if [[ -f /tmp/nx2apple-linux-deps/usr/include/vulkan/vulkan.h ]]; then
+        export NX2APPLE_VULKAN_INCLUDE=/tmp/nx2apple-linux-deps/usr/include
+    fi
+fi
+exec .venv/bin/python frontend-qt/run_gui.py "$@"

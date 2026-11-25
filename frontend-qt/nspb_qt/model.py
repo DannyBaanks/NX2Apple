@@ -301,6 +301,8 @@ class Model(QObject):
             if pu.IS_WIN:
                 root = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local'))
                 base = root / 'NS Port Builder' / 'logs'
+            elif pu.IS_LINUX:
+                base = Path(os.environ.get('XDG_STATE_HOME') or (Path.home() / '.local' / 'state')) / 'nx2apple' / 'logs'
             else:
                 base = Path.home() / 'Library' / 'Logs' / 'NS Port Builder'
             base.mkdir(parents=True, exist_ok=True)

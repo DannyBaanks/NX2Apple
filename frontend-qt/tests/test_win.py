@@ -20,6 +20,7 @@ attempted with the right arguments.
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
 import os
 import subprocess
 import sys
@@ -127,6 +128,7 @@ class Ld64Test(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.env = mock.patch.dict(os.environ, {}, clear=False)
         self.env.start()
+        os.environ['PATH'] = str(self.root / 'empty-path')
         for k in ('ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
             os.environ.pop(k, None)
         os.environ['LOCALAPPDATA'] = str(self.root / 'local')
@@ -250,6 +252,7 @@ class CheckAllTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.env = mock.patch.dict(os.environ, {}, clear=False)
         self.env.start()
+        os.environ['PATH'] = str(self.root / 'empty-path')
         for k in ('NSPB_LLVM_DIR', 'NSPB_IOS_SDK', 'NSPB_METAL_DIR', 'NSPB_TOOLCHAIN_JSON',
                   'ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
             os.environ.pop(k, None)
@@ -759,7 +762,7 @@ class DriverPatchTest(unittest.TestCase):
         self.assertTrue(self.mod.apple_silicon())
 
     def test_check_prereqs_raises_with_a_report(self) -> None:
-        with self.assertRaises(self.mod.BuildError) as ctx:
+        with mock.patch.object(tc, 'check_all', return_value=[tc.Probe('llvm', 'LLVM', 'missing', 'Install LLVM')]), self.assertRaises(self.mod.BuildError) as ctx:
             self.mod.check_prereqs({}, Path('missing/dmsh_xlate'), mac=False)
         msg = str(ctx.exception)
         self.assertIn('missing on this PC', msg)
@@ -4201,27 +4204,31 @@ class WindowsBuildFixesTest(unittest.TestCase):
             for full_val, identity_eol in (('', b'\r\n'), ('', b'\n'), ('1', b'\r\n')):
                 pack_calls.clear()
                 env_cur = dict(base_env, DM_FULL_ROMFS=full_val)
-                with (
-                    mock.patch.dict(os.environ, env_cur, clear=False),
-                    mock.patch.dict(sys.modules, {'game': fake_gm}),
-                    mock.patch.object(tc, 'llvm_tool', return_value=clang),
-                    mock.patch.object(tc, 'ensure_ld64_lld', return_value=(lld, '')),
-                    mock.patch.object(tc, 'ios_sdk', return_value=sdk),
-                    mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
-                    mock.patch.object(tc, 'std_font', return_value=std_font),
-                    mock.patch.object(tc, 'letter_font', return_value=letter_font),
-                    mock.patch.object(build_app, 'py', side_effect=fake_py),
-                    mock.patch.object(build_app, 'romfs_has', return_value=True),
-                    mock.patch.object(build_app, 'shader_lib_has', return_value=True),
-                    mock.patch.object(build_app, 'build_pso_archive', return_value=pso_dir) as spy_pso,
-                    mock.patch.object(build_app, 'host_sources', return_value=([], [])),
-                    mock.patch.object(build_app, 'framework_list', return_value=['Foundation']),
-                    mock.patch.object(build_app, 'compat_rt_needed', return_value=False),
-                    mock.patch.object(build_app, 'compile_all', return_value=[]),
-                    mock.patch.object(build_app, 'link', return_value=None),
-                    mock.patch.object(build_app.fix_ipa_modes, 'fix', return_value='ok'),
-                    mock.patch.object(build_app.subprocess, 'run', side_effect=fake_subproc_run),
-                ):
+                spy_pso = mock.Mock(return_value=pso_dir)
+                with ExitStack() as stack:
+                    patches = (
+                        mock.patch.dict(os.environ, env_cur, clear=False),
+                        mock.patch.dict(sys.modules, {'game': fake_gm}),
+                        mock.patch.object(tc, 'llvm_tool', return_value=clang),
+                        mock.patch.object(tc, 'ensure_ld64_lld', return_value=(lld, '')),
+                        mock.patch.object(tc, 'ios_sdk', return_value=sdk),
+                        mock.patch.object(tc, 'sdk_version', return_value=('26.0', '23A344')),
+                        mock.patch.object(tc, 'std_font', return_value=std_font),
+                        mock.patch.object(tc, 'letter_font', return_value=letter_font),
+                        mock.patch.object(build_app, 'py', side_effect=fake_py),
+                        mock.patch.object(build_app, 'romfs_has', return_value=True),
+                        mock.patch.object(build_app, 'shader_lib_has', return_value=True),
+                        mock.patch.object(build_app, 'build_pso_archive', spy_pso),
+                        mock.patch.object(build_app, 'host_sources', return_value=([], [])),
+                        mock.patch.object(build_app, 'framework_list', return_value=['Foundation']),
+                        mock.patch.object(build_app, 'compat_rt_needed', return_value=False),
+                        mock.patch.object(build_app, 'compile_all', return_value=[]),
+                        mock.patch.object(build_app, 'link', return_value=None),
+                        mock.patch.object(build_app.fix_ipa_modes, 'fix', return_value='ok'),
+                        mock.patch.object(build_app.subprocess, 'run', side_effect=fake_subproc_run),
+                    )
+                    for patch in patches:
+                        stack.enter_context(patch)
                     rc = build_app.main([str(out_ipa)])
                 self.assertEqual(rc, 0)
                 spy_pso.assert_called_once()

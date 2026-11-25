@@ -397,6 +397,8 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
         dirs += [r'C:\Program Files\dotnet', os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\dotnet')]
     else:
         dirs += ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+        if IS_LINUX:
+            dirs.append(str(Path.home() / '.local' / 'bin'))
     env['PATH'] = sep.join(d for d in dirs if d)
     if not env.get('HOME') or not Path(env['HOME']).is_dir():
         env['HOME'] = str(Path.home())

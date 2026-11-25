@@ -19,12 +19,17 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 
 from nspb_qt import platform_util as pu   # noqa: E402
 from nspb_qt.model import Model           # noqa: E402
+from nspb_qt import library              # noqa: E402
 
 L10N = ROOT / 'frontend' / 'l10n'
 LINUX_KEYS = ('dep.linux.zstd', 'dep.linux.spirv', 'dep.linux.glslang', 'dep.linux.note')
 
 
 class LinuxPaths(unittest.TestCase):
+    def test_library_uses_xdg_data_home(self):
+        with mock.patch.dict('os.environ', {'XDG_DATA_HOME': '/tmp/nx2-xdg-data'}, clear=True):
+            self.assertEqual(library.default_state_dir(), Path('/tmp/nx2-xdg-data/NS Port Builder'))
+
     def test_this_machine_is_linux(self):
         self.assertTrue(pu.IS_LINUX, 'this test only means something on Linux')
         self.assertFalse(pu.IS_WIN)
